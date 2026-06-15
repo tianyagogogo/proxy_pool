@@ -1,7 +1,8 @@
 
 ProxyPool 爬虫代理IP池
 =======
-[![Build Status](https://travis-ci.org/jhao104/proxy_pool.svg?branch=master)](https://travis-ci.org/jhao104/proxy_pool)
+[![Tests](https://github.com/jhao104/proxy_pool/actions/workflows/test.yml/badge.svg)](https://github.com/jhao104/proxy_pool/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/jhao104/proxy_pool/graph/badge.svg?token=8WHGkrQA6E)](https://codecov.io/gh/jhao104/proxy_pool)
 [![](https://img.shields.io/badge/Powered%20by-@j_hao104-green.svg)](http://www.spiderpy.cn/blog/)
 [![Packagist](https://img.shields.io/packagist/l/doctrine/orm.svg)](https://github.com/jhao104/proxy_pool/blob/master/LICENSE)
 [![GitHub contributors](https://img.shields.io/github/contributors/jhao104/proxy_pool.svg)](https://github.com/jhao104/proxy_pool/graphs/contributors)
@@ -20,12 +21,9 @@ ProxyPool 爬虫代理IP池
 
 爬虫代理IP池项目,主要功能为定时采集网上发布的免费代理验证入库，定时验证入库的代理保证代理的可用性，提供API和CLI两种使用方式。同时你也可以扩展代理源以增加代理池IP的质量和数量。
 
-* 文档: [document](https://proxy-pool.readthedocs.io/zh/latest/) [![Documentation Status](https://readthedocs.org/projects/proxy-pool/badge/?version=latest)](https://proxy-pool.readthedocs.io/zh/latest/?badge=latest)
+* 文档: [document](https://jhao104.github.io/proxy_pool/)
 
-* 支持版本: [![](https://img.shields.io/badge/Python-2.7-green.svg)](https://docs.python.org/2.7/)
-[![](https://img.shields.io/badge/Python-3.5-blue.svg)](https://docs.python.org/3.5/)
-[![](https://img.shields.io/badge/Python-3.6-blue.svg)](https://docs.python.org/3.6/)
-[![](https://img.shields.io/badge/Python-3.7-blue.svg)](https://docs.python.org/3.7/)
+* 支持版本: 
 [![](https://img.shields.io/badge/Python-3.8-blue.svg)](https://docs.python.org/3.8/)
 [![](https://img.shields.io/badge/Python-3.9-blue.svg)](https://docs.python.org/3.9/)
 [![](https://img.shields.io/badge/Python-3.10-blue.svg)](https://docs.python.org/3.10/)
@@ -48,7 +46,7 @@ ProxyPool 爬虫代理IP池
 * git clone
 
 ```bash
-git clone git@github.com:jhao104/proxy_pool.git
+git clone https://github.com/jhao104/proxy_pool.git
 ```
 
 * releases
@@ -80,13 +78,10 @@ PORT = 5000                    # 监听端口
 DB_CONN = 'redis://:pwd@127.0.0.1:8888/0'
 
 
-# 配置 ProxyFetcher
-
-PROXY_FETCHER = [
-    "freeProxy01",      # 这里是启用的代理抓取方法名，所有fetch方法位于fetcher/proxyFetcher.py
-    "freeProxy02",
-    # ....
-]
+# 配置代理源（可选）
+# 默认自动扫描 fetcher/sources/ 目录下所有 enabled=True 的代理源
+# 如需禁用某些代理源，在黑名单中添加其 name 即可
+# PROXY_FETCHER_EXCLUDE = ["freevpnnode"]
 ```
 
 #### 启动项目:
@@ -170,58 +165,49 @@ def getHtml():
 
 　　添加一个新的代理源方法如下:
 
-* 1、首先在[ProxyFetcher](https://github.com/jhao104/proxy_pool/blob/1a3666283806a22ef287fba1a8efab7b94e94bac/fetcher/proxyFetcher.py#L21)类中添加自定义的获取代理的静态方法，
-该方法需要以生成器(yield)形式返回`host:ip`格式的代理，例如:
+* 1、在 `fetcher/sources/` 目录下新建 `.py` 文件，继承 `BaseFetcher` 基类，声明 `name`/`url`/`enabled` 属性，实现 `fetch()` 方法以生成器(yield)形式返回`host:port`格式的代理，例如:
 
 ```python
+from fetcher.baseFetcher import BaseFetcher
+from util.webRequest import WebRequest
 
-class ProxyFetcher(object):
-    # ....
+class MyProxyFetcher(BaseFetcher):
+    """我的代理源"""
 
-    # 自定义代理源获取方法
-    @staticmethod
-    def freeProxyCustom1():  # 命名不和已有重复即可
+    name = "myproxy"
+    url = "https://www.example.com/"
+    enabled = True
 
-        # 通过某网站或者某接口或某数据库获取代理
-        # 假设你已经拿到了一个代理列表
-        proxies = ["x.x.x.x:3128", "x.x.x.x:80"]
-        for proxy in proxies:
-            yield proxy
-        # 确保每个proxy都是 host:ip正确的格式返回
+    def fetch(self):
+        r = WebRequest().get("https://www.example.com/api/proxies")
+        for item in r.json:
+            yield item["ip"] + ":" + item["port"]
 ```
 
-* 2、添加好方法后，修改[setting.py](https://github.com/jhao104/proxy_pool/blob/1a3666283806a22ef287fba1a8efab7b94e94bac/setting.py#L47)文件中的`PROXY_FETCHER`项：
+* 2、添加好后，`schedule` 进程下次抓取时会自动扫描 `fetcher/sources/` 目录并启用新代理源，无需修改配置。
 
-　　在`PROXY_FETCHER`下添加自定义方法的名字:
+　　可用 `python proxyPool.py fetcher` 命令查看当前启用的代理源列表。
 
-```python
-PROXY_FETCHER = [
-    "freeProxy01",    
-    "freeProxy02",
-    # ....
-    "freeProxyCustom1"  #  # 确保名字和你添加方法名字一致
-]
-```
-
-
-　　`schedule` 进程会每隔一段时间抓取一次代理，下次抓取时会自动识别调用你定义的方法。
+　　如需临时禁用某个代理源，在 [setting.py](setting.py) 的 `PROXY_FETCHER_EXCLUDE` 黑名单中添加其 `name` 即可。
 
 ### 免费代理源
 
-   目前实现的采集免费代理网站有(排名不分先后, 下面仅是对其发布的免费代理情况, 付费代理测评可以参考[这里](https://zhuanlan.zhihu.com/p/33576641)): 
+   目前实现的采集免费代理网站有(排名不分先后, 下面仅是对其发布的免费代理情况, 付费代理测评可以参考[这里](https://zhuanlan.zhihu.com/p/33576641)):
    
-  | 代理名称          |  状态  |  更新速度 |  可用率  |  地址 | 代码                                             |
-  |---------------|  ---- | --------  | ------  | ----- |------------------------------------------------|
-  | 66代理          |  ✔    |     ★     |   *     | [地址](http://www.66ip.cn/)         | [`freeProxy02`](/fetcher/proxyFetcher.py#L50)  |
-  | 开心代理          |   ✔   |     ★     |   *     | [地址](http://www.kxdaili.com/)     | [`freeProxy03`](/fetcher/proxyFetcher.py#L63)  |
-  | FreeProxyList |   ✔  |    ★     |   *    | [地址](https://www.freeproxylists.net/zh/) | [`freeProxy04`](/fetcher/proxyFetcher.py#L74)  |
-  | 快代理           |  ✔    |     ★     |   *     | [地址](https://www.kuaidaili.com/)  | [`freeProxy05`](/fetcher/proxyFetcher.py#L92)  |
-  | 冰凌代理          |  ✔    |    ★★★    |   *     | [地址](https://www.binglx.cn/) | [`freeProxy06`](/fetcher/proxyFetcher.py#L111) |
-  | 云代理           |  ✔    |    ★     |   *     | [地址](http://www.ip3366.net/)      | [`freeProxy07`](/fetcher/proxyFetcher.py#L123) |
-  | 小幻代理          |  ✔    |    ★★    |    *    | [地址](https://ip.ihuan.me/)        | [`freeProxy08`](/fetcher/proxyFetcher.py#L133) |
-  | 免费代理库         |  ✔    |     ☆     |    *    | [地址](http://ip.jiangxianli.com/)   | [`freeProxy09`](/fetcher/proxyFetcher.py#L143) |
-  | 89代理          |  ✔    |     ☆     |   *     | [地址](https://www.89ip.cn/)         | [`freeProxy10`](/fetcher/proxyFetcher.py#L154) |
-  | 稻壳代理          |  ✔    |     ★★    |   ***   | [地址](https://www.docip.ne)         | [`freeProxy11`](/fetcher/proxyFetcher.py#L164) |
+  | 代理名称         |  状态  | 更新速度 | 可用率 | 地址                                                | 代码                                                      |
+  |--------------|  ---- |------|-----|---------------------------------------------------|---------------------------------------------------------|
+  | 开心代理         |   ✔   | ★    | *   | [地址](http://www.kxdaili.com/)                     | [`kxdaili.py`](/fetcher/sources/kxdaili.py)             |
+  | 快代理          |  ✔    | ★    | *   | [地址](https://www.kuaidaili.com/)                  | [`kuaidaili.py`](/fetcher/sources/kuaidaili.py)         |
+  | 云代理          |  ✔    | ★    | *   | [地址](http://www.ip3366.net/)                      | [`ip3366.py`](/fetcher/sources/ip3366.py)               |
+  | 小幻代理         |  ✔    | ★    | *   | [地址](https://ip.ihuan.me/)                        | [`ihuan.py`](/fetcher/sources/ihuan.py)                 |
+  | 89代理         |  ✔    | ★★   | **  | [地址](https://www.89ip.cn)                         | [`ip89.py`](/fetcher/sources/ip89.py)                   |
+  | 稻壳代理         |  ✔    | ★★   | *** | [地址](https://www.docip.ne)                        | [`docip.py`](/fetcher/sources/docip.py)                 |
+  | 谷德代理         |  ✔    | ★★   | *** | [地址](https://www.goodips.com)                     | [`goodips.py`](/fetcher/sources/goodips.py)             |
+  | 66代理         |  ✔    | ★★   | *   | [地址](https://www.66daili.com)                     | [`daili66.py`](/fetcher/sources/daili66.py)             |
+  | Proxifly     |  ✔    | ★★   | **  | [地址](https://proxifly.dev)                        | [`proxifly.py`](/fetcher/sources/proxifly.py)           |
+  | FreeVPNNode  |  ✔    | ★★   | *   | [地址](https://cn.freevpnnode.com)                  | [`freevpnnode.py`](/fetcher/sources/freevpnnode.py)     |
+  | Geonode      |  ✔    | ★★   | **  | [地址](https://geonode.com)                         | [`geonode.py`](/fetcher/sources/geonode.py)             |
+  | RoundProxies |  ✔    | ★    | *   | [地址](https://roundproxies.com/free-proxy-list)    | [`roundproxies.py`](/fetcher/sources/roundproxies.py)   |
 
   
   如果还有其他好的免费代理网站, 可以在提交在[issues](https://github.com/jhao104/proxy_pool/issues/71), 下次更新时会考虑在项目中支持。
@@ -240,11 +226,11 @@ PROXY_FETCHER = [
 
 　　这里感谢以下contributor的无私奉献：
 
-　　[@kangnwh](https://github.com/kangnwh) | [@bobobo80](https://github.com/bobobo80) | [@halleywj](https://github.com/halleywj) | [@newlyedward](https://github.com/newlyedward) | [@wang-ye](https://github.com/wang-ye) | [@gladmo](https://github.com/gladmo) | [@bernieyangmh](https://github.com/bernieyangmh) | [@PythonYXY](https://github.com/PythonYXY) | [@zuijiawoniu](https://github.com/zuijiawoniu) | [@netAir](https://github.com/netAir) | [@scil](https://github.com/scil) | [@tangrela](https://github.com/tangrela) | [@highroom](https://github.com/highroom) | [@luocaodan](https://github.com/luocaodan) | [@vc5](https://github.com/vc5) | [@1again](https://github.com/1again) | [@obaiyan](https://github.com/obaiyan) | [@zsbh](https://github.com/zsbh) | [@jiannanya](https://github.com/jiannanya) | [@Jerry12228](https://github.com/Jerry12228)
+　　[@kangnwh](https://github.com/kangnwh) | [@bobobo80](https://github.com/bobobo80) | [@halleywj](https://github.com/halleywj) | [@newlyedward](https://github.com/newlyedward) | [@wang-ye](https://github.com/wang-ye) | [@gladmo](https://github.com/gladmo) | [@bernieyangmh](https://github.com/bernieyangmh) | [@PythonYXY](https://github.com/PythonYXY) | [@zuijiawoniu](https://github.com/zuijiawoniu) | [@netAir](https://github.com/netAir) | [@scil](https://github.com/scil) | [@tangrela](https://github.com/tangrela) | [@highroom](https://github.com/highroom) | [@luocaodan](https://github.com/luocaodan) | [@vc5](https://github.com/vc5) | [@1again](https://github.com/1again) | [@obaiyan](https://github.com/obaiyan) | [@zsbh](https://github.com/zsbh) | [@jiannanya](https://github.com/jiannanya) | [@Jerry12228](https://github.com/Jerry12228) | [@zeyudada](https://github.com/zeyudada)
 
 
 ### Release Notes
 
-   [changelog](https://github.com/jhao104/proxy_pool/blob/master/docs/changelog.rst)
+   [changelog](https://jhao104.github.io/proxy_pool/changelog/)
 
 <a href="https://hellogithub.com/repository/92a066e658d147cc8bd8397a1cb88183" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=92a066e658d147cc8bd8397a1cb88183&claim_uid=DR60NequsjP54Lc" alt="Featured｜HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54" /></a>
